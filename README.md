@@ -1,4 +1,4 @@
-
+# 多层智能代理协调系统 Claude-Code-Multi-Agent)
 
 > **Context Engineering 驱动的新一代AI编程助手生态系统**\
 > 基于Claude Code构建的智能代理协调平台，实现从需求到交付的全流程自动化开发
@@ -28,6 +28,110 @@
 2. 优先处理关键功能模块
 3. 合理根据自身需求使用不同复杂度的工作流
 
+
+
+
+
+
+## 🧩 推荐MCP协同配置以达最佳效果
+
+为了充分发挥 `Claude-Code-Multi-Agent` 系统的全部潜力，我们强烈建议配置 **模型上下文协议**。通过启用一系列协同工作的MCP服务器，您可以为AI代理提供与外部世界交互、长期记忆、浏览器自动化等高级能力，从而实现更复杂、更可靠的自动化开发工作流。
+
+### 🚀 **配置方法**
+
+请将以下 `mcpServers` 配置代码块添加到您的 `.claude/settings.local.json` 文件中。如果文件不存在，请创建一个。
+
+```json
+{
+  "mcpServers": {
+    "Context7": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@upstash/context7-mcp@latest"
+      ]
+    },
+    "browsermcp": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@browsermcp/mcp@latest"
+      ]
+    },
+    "mcp-feedback-enhanced": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "python",
+        "-m",
+        "mcp_feedback_enhanced"
+      ],
+      "timeout": 600,
+      "autoApprove": [
+        "interactive_feedback"
+      ]
+    },
+    "memory": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-memory@latest"
+      ]
+    },
+    "playwright-mcp": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@smithery/cli@latest",
+        "run",
+        "@microsoft/playwright-mcp",
+        "--key",
+        "ec7ce98b-bb8a-4d8a-92aa-3bde30602c4c"
+      ]
+    },
+    "sequential-thinking": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ]
+    },
+    "shrimp-task-manager": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "mcp-shrimp-task-manager"
+      ]
+    }
+  }
+}
+```
+
+### 🛠️ **核心MCP服务解析**
+
+| MCP服务器 | 主要功能 |
+| :--- | :--- |
+| **`playwright-mcp`** | **浏览器自动化**: 授权代理通过Playwright控制浏览器，执行网页交互、端到端测试和数据抓取。 |
+| **`memory`** | **长期记忆**: 提供一个持久化存储，让代理能够跨会话记住关键信息、上下文和用户偏好。 |
+| **`sequential-thinking`** | **顺序思维增强**: 引导代理进行更结构化、逻辑化的思考，将复杂问题分解为有序步骤。 |
+| **`mcp-feedback-enhanced(交互核心)`** | **增强反馈循环**: 建立一个交互式反馈机制，允许用户在任务执行过程中进行干预和指导。 |
+| **`browsermcp`** | **通用浏览器控制**: 提供一个轻量级的浏览器交互接口。 |
+| **`shrimp-task-manager`** | **任务管理**: 一个专用的任务管理服务，用于更精细地跟踪和控制自动化任务的执行状态。 |
+
+> **注意**：
+>
+>   * 启用这些MCP服务可能需要在您的本地环境中安装相应的依赖，例如 **Node.js (用于 `npx`)** 和 **Python**。
+>   * 部分服务如 `playwright-mcp` 在首次运行时会自动下载浏览器驱动，请确保您的网络连接正常。
 
 
 ## 🏗️ 系统架构
