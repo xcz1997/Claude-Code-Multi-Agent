@@ -28,6 +28,8 @@ class HooksConfig:
     # Ollama 配置
     ollama_model: str = "gemma3:1b"  # 默认模型，可通过环境变量覆盖
     ollama_timeout: int = 10
+    ollama_base_url: str = ""  # HTTP API 地址（如 http://localhost:11434），为空则使用 CLI
+    ollama_api_key: str = ""  # API Token（用于远程 Ollama 或 OpenAI 兼容接口）
 
     # 日志配置
     max_log_entries: int = 500
@@ -48,6 +50,8 @@ class HooksConfig:
         """初始化后处理"""
         # 从环境变量读取配置（优先读取 OLLAMA_MODEL，兼容 HOOKS_OLLAMA_MODEL）
         self.ollama_model = os.getenv('OLLAMA_MODEL') or os.getenv('HOOKS_OLLAMA_MODEL', self.ollama_model)
+        self.ollama_base_url = os.getenv('OLLAMA_BASE_URL', self.ollama_base_url).rstrip('/')
+        self.ollama_api_key = os.getenv('OLLAMA_API_KEY', self.ollama_api_key)
         self.tts_provider = os.getenv('HOOKS_TTS_PROVIDER', self.tts_provider)
         self.tts_enabled = os.getenv('HOOKS_TTS_ENABLED', 'true').lower() == 'true'
 

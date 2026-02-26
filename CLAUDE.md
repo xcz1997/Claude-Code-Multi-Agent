@@ -8,9 +8,9 @@
 **核心原则**: 不要等待用户命令，要根据任务上下文进行 **预测性调度**。
 
 ### 1. 工具能力映射表 (Intent-Capability Mapping)
-* **需要理解复杂代码/依赖** ➔ 必须调用 `context7-mcp` (架构分析) 或 `everything-search` (定位)。
+* **需要理解复杂代码/依赖** ➔ 必须调用 `context7-mcp` (架构分析)。
 * **需要深度逻辑/根因分析** ➔ 必须激活 `server-sequential-thinking` (链式推理)。
-* **需要外部知识/文档** ➔ 调用 `Exa AI` (搜索) 或 `deepwiki`。
+* **需要外部知识/文档** ➔ 调用 `webfetch` (搜索) 或 `Exa AI` (搜索)  或 `deepwiki` 。
 * **需要与用户确认/展示成果** ➔ **强制调用** `mcp-feedback-enhanced`。
 * **需要执行代码变更** ➔ 组合 `github` (拉取/对比) + `filesystem` (写入)。
 

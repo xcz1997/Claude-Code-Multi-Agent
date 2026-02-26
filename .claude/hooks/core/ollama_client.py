@@ -1,9 +1,14 @@
 """
 Ollama LLM 客户端
 所有判断逻辑都通过提示词完成，不使用硬编码规则
+支持两种调用方式：
+  1. CLI 模式（默认）：直接调用 ollama 命令行
+  2. HTTP API 模式：通过 OLLAMA_BASE_URL + OLLAMA_API_KEY 配置，支持远程 Ollama 或 OpenAI 兼容接口
 """
 import subprocess
 import json
+import urllib.request
+import urllib.error
 from typing import Optional, Dict, Any
 from .config import config
 
@@ -14,9 +19,22 @@ class OllamaClient:
     def __init__(self, model: Optional[str] = None):
         self.model = model or config.ollama_model
         self.timeout = config.ollama_timeout
+        self.base_url = config.ollama_base_url
+        self.api_key = config.ollama_api_key
+
+    @property
+    def _use_api(self) -> bool:
+        """是否使用 HTTP API 模式（配置了 base_url 即启用）"""
+        return bool(self.base_url)
 
     def _call(self, prompt: str) -> Optional[str]:
-        """调用 Ollama"""
+        """调用 LLM（自动选择 CLI 或 HTTP API）"""
+        if self._use_api:
+            return self._call_api(prompt)
+        return self._call_cli(prompt)
+
+    def _call_cli(self, prompt: str) -> Optional[str]:
+        """通过 CLI 调用本地 Ollama"""
         try:
             result = subprocess.run(
                 ["ollama", "run", self.model, prompt],
@@ -24,6 +42,58 @@ class OllamaClient:
             )
             return result.stdout.strip() if result.returncode == 0 else None
         except (subprocess.TimeoutExpired, FileNotFoundError):
+            return None
+
+    def _call_api(self, prompt: str) -> Optional[str]:
+        """通过 HTTP API 调用（支持 Ollama API 和 OpenAI 兼容接口）"""
+        # 根据 URL 路径判断接口类型
+        if '/v1' in self.base_url:
+            return self._call_openai_compatible(prompt)
+        return self._call_ollama_api(prompt)
+
+    def _call_ollama_api(self, prompt: str) -> Optional[str]:
+        """调用 Ollama 原生 HTTP API（/api/generate）"""
+        url = f"{self.base_url}/api/generate"
+        payload = json.dumps({
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+        }).encode('utf-8')
+
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        try:
+            req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                return data.get("response", "").strip() or None
+        except (urllib.error.URLError, json.JSONDecodeError, TimeoutError, OSError):
+            return None
+
+    def _call_openai_compatible(self, prompt: str) -> Optional[str]:
+        """调用 OpenAI 兼容接口（/v1/chat/completions）"""
+        url = f"{self.base_url}/chat/completions" if not self.base_url.endswith('/chat/completions') else self.base_url
+        payload = json.dumps({
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1,
+        }).encode('utf-8')
+
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        try:
+            req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                choices = data.get("choices", [])
+                if choices:
+                    return choices[0].get("message", {}).get("content", "").strip() or None
+                return None
+        except (urllib.error.URLError, json.JSONDecodeError, TimeoutError, OSError):
             return None
 
     def _call_json(self, prompt: str) -> Optional[Dict]:

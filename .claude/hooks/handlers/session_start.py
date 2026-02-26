@@ -203,18 +203,81 @@ class SessionStartHook(BaseHook):
 
         return self.allow(output)
 
-    def _detect_project(self) -> dict:
-        """使用 Ollama 智能检测项目类型和框架"""
-        cwd = Path.cwd()
-        project_info = {"type": "unknown", "frameworks": []}
+    # 框架自身的目录，不应被识别为用户项目
+    FRAMEWORK_DIRS = {
+        '.claude', '.github', 'project_document', 'dist',
+        'node_modules', '__pycache__', '.venv', '.git',
+    }
 
-        # 收集项目上下文信息
+    # 框架自身的根文件，不应作为用户项目的检测依据
+    FRAMEWORK_ROOT_FILES = {
+        'pyproject.toml', 'uv.lock', 'CLAUDE.md', 'LICENSE',
+        'README.md', '.env', '.env.example', '.gitignore', '.python-version',
+    }
+
+    # 项目特征文件（文件名精确匹配）
+    PROJECT_INDICATOR_FILES = {
+        'package.json', 'pyproject.toml', 'requirements.txt', 'setup.py', 'setup.cfg',
+        'Cargo.toml', 'go.mod', 'go.sum',
+        'pom.xml', 'build.gradle', 'build.gradle.kts',
+        'composer.json', 'Gemfile',
+        'CMakeLists.txt', 'Makefile', 'meson.build',
+        'pubspec.yaml', 'Package.swift',
+        'Podfile', 'Cartfile',
+        'mix.exs', 'rebar.config',
+        'tsconfig.json', 'angular.json', 'next.config.js', 'next.config.mjs',
+        'vue.config.js', 'nuxt.config.ts',
+        'manage.py', 'app.py', 'main.py',
+        'index.html', 'index.js', 'index.ts',
+    }
+
+    # 项目特征目录后缀（如 .xcodeproj, .xcworkspace, .sln）
+    PROJECT_INDICATOR_SUFFIXES = {
+        '.xcodeproj', '.xcworkspace', '.sln', '.csproj',
+    }
+
+    def _find_user_projects(self) -> List[Path]:
+        """识别用户复制进来的项目目录（排除框架自身的目录）"""
+        cwd = Path.cwd()
+        candidates = []
+
+        try:
+            for item in sorted(cwd.iterdir()):
+                if not item.is_dir():
+                    continue
+                # 排除点目录和框架已知目录
+                if item.name.startswith('.') or item.name in self.FRAMEWORK_DIRS:
+                    continue
+                # 检查该目录是否包含项目特征
+                if self._has_project_indicators(item):
+                    candidates.append(item)
+        except Exception:
+            pass
+
+        return candidates
+
+    def _has_project_indicators(self, directory: Path) -> bool:
+        """检查目录是否包含项目特征文件或目录"""
+        try:
+            for item in directory.iterdir():
+                # 检查特征文件
+                if item.is_file() and item.name in self.PROJECT_INDICATOR_FILES:
+                    return True
+                # 检查特征目录后缀（如 .xcodeproj）
+                if item.is_dir() and any(item.name.endswith(s) for s in self.PROJECT_INDICATOR_SUFFIXES):
+                    return True
+            return False
+        except Exception:
+            return False
+
+    def _collect_dir_context(self, target_dir: Path) -> List[str]:
+        """收集指定目录的项目上下文信息"""
         context_parts = []
-        
-        # 1. 列出主要文件和目录
+
+        # 1. 列出目录结构
         try:
             top_level_items = []
-            for item in sorted(cwd.iterdir()):
+            for item in sorted(target_dir.iterdir()):
                 if item.name.startswith('.'):
                     continue
                 if item.is_dir():
@@ -222,7 +285,7 @@ class SessionStartHook(BaseHook):
                 else:
                     top_level_items.append(f"文件: {item.name}")
             if top_level_items:
-                context_parts.append("项目根目录结构：\n" + "\n".join(top_level_items[:30]))
+                context_parts.append(f"项目目录结构（{target_dir.name}/）：\n" + "\n".join(top_level_items[:30]))
         except Exception:
             pass
 
@@ -236,10 +299,15 @@ class SessionStartHook(BaseHook):
             "pom.xml": "Maven 项目配置",
             "build.gradle": "Gradle 项目配置",
             "composer.json": "PHP 项目配置",
+            "pubspec.yaml": "Flutter/Dart 项目配置",
+            "Package.swift": "Swift 项目配置",
+            "Podfile": "iOS CocoaPods 配置",
+            "tsconfig.json": "TypeScript 配置",
+            "Makefile": "构建配置",
         }
 
         for config_file, desc in config_files.items():
-            config_path = cwd / config_file
+            config_path = target_dir / config_file
             if config_path.exists():
                 try:
                     content = config_path.read_text(encoding='utf-8')[:1000]
@@ -247,9 +315,17 @@ class SessionStartHook(BaseHook):
                 except Exception:
                     pass
 
-        # 3. 读取 README（如果有）
+        # 3. 检查 Xcode 项目（目录形式的特征）
+        try:
+            for item in target_dir.iterdir():
+                if item.is_dir() and any(item.name.endswith(s) for s in self.PROJECT_INDICATOR_SUFFIXES):
+                    context_parts.append(f"\n检测到项目文件: {item.name}")
+        except Exception:
+            pass
+
+        # 4. 读取 README（如果有）
         for readme_name in ["README.md", "README.txt", "README"]:
-            readme_path = cwd / readme_name
+            readme_path = target_dir / readme_name
             if readme_path.exists():
                 try:
                     content = readme_path.read_text(encoding='utf-8')[:500]
@@ -258,7 +334,30 @@ class SessionStartHook(BaseHook):
                 except Exception:
                     pass
 
-        # 4. 使用 Ollama 分析项目类型
+        return context_parts
+
+    def _detect_project(self) -> dict:
+        """使用 Ollama 智能检测项目类型和框架（优先检测用户项目目录）"""
+        cwd = Path.cwd()
+        project_info = {"type": "unknown", "frameworks": []}
+
+        # 优先寻找用户复制进来的项目目录
+        user_projects = self._find_user_projects()
+
+        context_parts = []
+
+        if user_projects:
+            # 基于用户项目目录收集上下文
+            for proj_dir in user_projects[:3]:  # 最多扫描 3 个用户项目
+                dir_context = self._collect_dir_context(proj_dir)
+                context_parts.extend(dir_context)
+                logger.info(f"检测到用户项目目录: {proj_dir.name}")
+        else:
+            # 降级：未找到用户项目，扫描根目录（当前行为）
+            logger.debug("未检测到用户项目目录，降级扫描根目录")
+            context_parts = self._collect_dir_context(cwd)
+
+        # 使用 Ollama 分析项目类型
         if context_parts:
             project_context = "\n".join(context_parts)
             try:
@@ -267,6 +366,8 @@ class SessionStartHook(BaseHook):
                 project_info["frameworks"] = analysis.get("frameworks", [])
                 project_info["characteristics"] = analysis.get("characteristics", [])
                 project_info["confidence"] = analysis.get("confidence", "low")
+                if user_projects:
+                    project_info["detected_dirs"] = [p.name for p in user_projects[:3]]
                 logger.info(f"项目检测: {project_info['type']} (置信度: {project_info.get('confidence', 'low')})")
             except Exception as e:
                 logger.debug(f"Ollama 项目检测失败，使用默认值: {e}")
